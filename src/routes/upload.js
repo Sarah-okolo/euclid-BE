@@ -1,9 +1,8 @@
 // src/routes/upload.js
 import express from "express";
-import pdfParse from "pdf-parse";
+import { PDFParse } from "pdf-parse";
 import { upload } from "../middleware/upload.js";
 import { processDocument } from "../services/rag.js";
-import { getDB } from "../config/db.js";
 
 const router = express.Router();
 
@@ -23,9 +22,12 @@ router.post("/", upload.single("knowledgeBase"), async (req, res) => {
       });
     }
 
-    // Extract text from PDF
-    const pdfData = await pdfParse(file.buffer);
-    const extractedText = pdfData.text?.trim();
+    // ✅ Updated PDF parsing using new pdf-parse API
+    const parser = new PDFParse({ data: file.buffer });
+    const textResult = await parser.getText();
+    await parser.destroy();
+
+    const extractedText = textResult.text?.trim() || "";
 
     if (!extractedText) {
       return res.status(400).json({

@@ -2,7 +2,9 @@
 
 /**
  * Splits text into smaller chunks for embeddings.
- * Uses paragraph-based chunking with a configurable max length.
+ * Uses sentence-aware chunking to keep context coherent.
+ * @param {string} text
+ * @param {number} chunkSize
  */
 export function chunkText(text, chunkSize = 800) {
   const sentences = text
@@ -14,10 +16,10 @@ export function chunkText(text, chunkSize = 800) {
 
   for (const sentence of sentences) {
     if ((currentChunk + sentence).length > chunkSize) {
-      chunks.push(currentChunk.trim());
+      if (currentChunk.trim()) chunks.push(currentChunk.trim());
       currentChunk = sentence;
     } else {
-      currentChunk += " " + sentence;
+      currentChunk += (currentChunk ? " " : "") + sentence;
     }
   }
 

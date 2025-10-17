@@ -62,7 +62,12 @@ router.post("/", async (req, res) => {
 
     // Step 2: Verify user’s role permissions for the endpoint
     const userRoles = decoded[bot.rolesNamespace] || [];
-    const endpointRules = JSON.parse(bot.endpointRoles || "[]");
+    let endpointRules = [];
+    try {
+      endpointRules = JSON.parse(bot.endpointRoles || "[]");
+    } catch {
+      endpointRules = [];
+    }
     const rule = endpointRules.find((r) => r.endpoint === endpoint);
 
     if (rule && !rule.roles.some((role) => userRoles.includes(role))) {

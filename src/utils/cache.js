@@ -31,4 +31,3 @@ export function clearCache(key) {
 export function flushCache() {
   cache.clear();
 }
-// Simple cache utility for storing temporary data like embeddings

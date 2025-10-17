@@ -1,13 +1,11 @@
 // src/routes/bots.js
 import express from "express";
 import crypto from "crypto";
+import { PDFParse } from "pdf-parse";
 import { upload } from "../middleware/upload.js";
 import { getDB } from "../config/db.js";
 import { processDocument } from "../services/rag.js";
 import { validateBotConfig } from "../utils/validators.js";
-import * as pdfParsePkg from "pdf-parse";
-const pdfParse = pdfParsePkg.default || pdfParsePkg;
-
 
 const router = express.Router();
 
@@ -53,9 +51,22 @@ router.post("/create", upload.single("knowledgeBase"), async (req, res) => {
 
     await botsCollection.insertOne(botDoc);
 
-    // Parse PDF and process RAG
-    const pdfText = (await pdfParse(req.file.buffer)).text;
+    // ✅ Updated PDF parsing using new pdf-parse API
+    const parser = new PDFParse({ data: req.file.buffer });
+    const textResult = await parser.getText();
+    await parser.destroy();
+
+    const pdfText = textResult.text?.trim() || "";
+    if (!pdfText) {
+      await botsCollection.updateOne(
+        { botId },
+        { $set: { embeddingStatus: "failed", updatedAt: new Date() } }
+      );
+      return res.status(400).json({ status: "failed", error: "Failed to extract text" });
+    }
+
     const success = await processDocument(botId, pdfText, req.file.originalname);
+    // console.log("🚀pdf text extracted", pdfText, "👀from", req.file.originalname)
 
     if (!success) {
       await botsCollection.updateOne(
@@ -133,15 +144,21 @@ router.put("/:botId", upload.single("knowledgeBase"), async (req, res) => {
       updatedAt: new Date(),
     };
 
-    // If a new PDF is uploaded, process RAG again
+    // ✅ Updated PDF re-processing using new pdf-parse API
     if (req.file) {
-      const pdfText = (await pdfParse(req.file.buffer)).text;
+      const parser = new PDFParse({ data: req.file.buffer });
+      const textResult = await parser.getText();
+      await parser.destroy();
+
+      const pdfText = textResult.text?.trim() || "";
+
       await botsCollection.updateOne(
         { botId: req.params.botId },
-        { $set: { embeddingStatus: "pending" } }
+        { $set: { embeddingStatus: "pending", updatedAt: new Date() } }
       );
 
       const success = await processDocument(req.params.botId, pdfText, req.file.originalname);
+
       if (!success) {
         await botsCollection.updateOne(
           { botId: req.params.botId },
@@ -163,4 +180,3 @@ router.put("/:botId", upload.single("knowledgeBase"), async (req, res) => {
 });
 
 export default router;
-// Simple CRUD routes for bot configurations and RAG ingestion

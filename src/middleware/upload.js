@@ -22,4 +22,3 @@ export const upload = multer({
   limits: { fileSize: MAX_FILE_SIZE },
   fileFilter,
 });
-// Middleware to handle single file upload with field name 'file'
