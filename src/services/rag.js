@@ -1,61 +1,51 @@
-// src/services/rag.js
-import crypto from "crypto";
 import { chunkText } from "../utils/textChunker.js";
-import { pinecone } from "../config/pinecone.js";
+import { upsertEmbeddings } from "./vectorStore.js";
 
 /**
  * processDocument
- * Chunk text and store embeddings directly in Pinecone using its built-in embedding model.
- * @param {string} botId
- * @param {string} text
- * @param {string} filename
- * @returns {Promise<boolean>}
+ * Splits text into chunks and uploads them to Pinecone.
+ * Pinecone (serverless) automatically handles embedding for each chunk.
+ *
+ * @param {string} botId - Namespace for Pinecone
+ * @param {string} text - Extracted text from PDF or other document
+ * @param {string} [filename="document.pdf"]
+ * @returns {Promise<boolean>} success/failure
  */
 export async function processDocument(botId, text, filename = "document.pdf") {
   try {
-    // Split text into sentence-aware chunks
-    const chunks = chunkText(text, 1200);
-    if (!chunks.length) {
-      console.warn("⚠️ No chunks generated from document text");
+    if (!text || !text.trim()) {
+      console.error("❌ RAG: Empty or invalid text input");
       return false;
     }
 
-    console.log(`📘 Processing ${chunks.length} chunks for ${filename}`);
-
-    // Get Pinecone index (ensure you have created it in dashboard)
-    const index = pinecone.index(process.env.PINECONE_INDEX_NAME);
-
-    // Prepare upsert records — Pinecone will embed automatically
-    const vectors = chunks.map((chunk, i) => ({
-      id: `${botId}_${i}`,
-      metadata: {
-        botId,
-        text: chunk,
-        filename,
-        chunkIndex: i,
-      },
-      // ✅ No manual 'values' — Pinecone handles embedding internally
-      // ✅ Just pass the text content
-      text: chunk,
-    }));
-
-    // Upsert in batches (safely handles large documents)
-    const batchSize = 50;
-    for (let i = 0; i < vectors.length; i += batchSize) {
-      const batch = vectors.slice(i, i + batchSize);
-
-      console.log(`🪄 Upserting batch ${Math.ceil(i / batchSize) + 1}/${Math.ceil(vectors.length / batchSize)}...`);
-
-      await index.namespace(botId).upsert(batch, {
-        // Tell Pinecone to embed the text automatically
-        embed: { model: "text-embedding-ada-002" },
-      });
+    // Split text into semantic chunks (~1000 characters)
+    const chunks = chunkText(text, 1000);
+    if (!chunks.length) {
+      console.error("❌ RAG: No valid chunks generated from document");
+      return false;
     }
 
-    console.log(`✅ Completed ingestion for ${filename} (${chunks.length} chunks total)`);
+    console.log(`📄 RAG: Processing ${chunks.length} chunks for bot "${botId}" (${filename})`);
+
+    // Prepare items for Pinecone
+    const items = chunks.map((chunk, i) => ({
+      id: `${botId}_${Date.now()}_${i}`, // ✅ unique and collision-safe ID
+      text: chunk,
+      metadata: {
+        botId,
+        filename,
+        chunkIndex: i,
+        length: chunk.length,
+      },
+    }));
+
+    // Upload chunks to Pinecone (auto-embeds via serverless mode)
+    await upsertEmbeddings(botId, items);
+
+    console.log(`✅ RAG: Successfully uploaded ${chunks.length} chunks for bot "${botId}"`);
     return true;
   } catch (err) {
-    console.error("❌ Error in RAG processing:", err);
+    console.error("❌ RAG: Document processing failed:", err);
     return false;
   }
 }

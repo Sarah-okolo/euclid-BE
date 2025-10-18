@@ -25,6 +25,7 @@ app.get("/", (req, res) => {
 // Mount routes BEFORE server starts
 app.use("/api/chat", chatRouter);
 app.use("/api/bots", botsRouter);
+app.use("/api/proxy", proxyRouter);
 app.use("/api/upload", uploadRouter);
 
 // Connect DB and start server
