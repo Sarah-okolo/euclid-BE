@@ -104,6 +104,7 @@ router.post("/create", upload.single("knowledgeBase"), async (req, res) => {
  */
 router.get("/:botId", async (req, res) => {
   const db = getDB();
+  console.log("Fetching bot details");
 
   try {
     const bot = await db
@@ -125,11 +126,13 @@ router.get("/:botId", async (req, res) => {
  * Update bot configuration and optionally re-upload its knowledge base.
  */
 router.put("/:botId", upload.single("knowledgeBase"), async (req, res) => {
+  console.log("Fetching bot for update:", req.params.botId);
   const db = getDB();
 
   try {
     const botsCollection = db.collection("bots");
     const bot = await botsCollection.findOne({ botId: req.params.botId });
+    console.log("Updating bot:", req.params.botId);
 
     if (!bot)
       return res.status(404).json({ status: "failed", error: "Bot not found" });

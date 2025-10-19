@@ -59,7 +59,7 @@ export async function querySimilar(botId, queryText, topK = 5) {
 
     const results = await namespace.searchRecords({
       query: {
-        text: queryText,
+        inputs: { text: queryText },
         topK,
       },
     });
