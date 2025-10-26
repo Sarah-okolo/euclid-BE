@@ -44,6 +44,7 @@ router.post("/create", upload.single("knowledgeBase"), async (req, res) => {
       endpointRoles: JSON.stringify(parsedRoles),
       authDomain: req.body.authDomain,
       authAudience: req.body.authAudience,
+      authClientId: req.body.authClientId,
       rolesNamespace: req.body.rolesNamespace,
       embeddingStatus: "pending",
       createdAt: new Date(),

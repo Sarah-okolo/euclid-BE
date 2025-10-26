@@ -1,3 +1,4 @@
+// src/services/vectorStore.js
 import { pinecone } from "../config/pinecone.js";
 
 /**
