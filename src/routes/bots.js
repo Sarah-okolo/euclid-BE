@@ -35,7 +35,7 @@ router.post("/create", upload.single("knowledgeBase"), async (req, res) => {
     const botsCollection = db.collection("bots");
 
     const botDoc = {
-      botId, // prefixed ID
+      botId,
       businessName: req.body.businessName,
       botName: req.body.botName,
       botPersona: req.body.botPersona,
@@ -45,7 +45,7 @@ router.post("/create", upload.single("knowledgeBase"), async (req, res) => {
       authDomain: req.body.authDomain,
       authAudience: req.body.authAudience,
       authClientId: req.body.authClientId,
-      rolesNamespace: req.body.rolesNamespace,
+      ...(req.body.rolesNamespace && { rolesNamespace: req.body.rolesNamespace }),
       embeddingStatus: "pending",
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -159,7 +159,7 @@ router.put("/:botId", upload.single("knowledgeBase"), async (req, res) => {
       endpointRoles: JSON.stringify(parsedRoles),
       authDomain: req.body.authDomain || bot.authDomain,
       authAudience: req.body.authAudience || bot.authAudience,
-      rolesNamespace: req.body.rolesNamespace || bot.rolesNamespace,
+      ...(req.body.rolesNamespace !== undefined && { rolesNamespace: req.body.rolesNamespace }),
       updatedAt: new Date(),
     };
 
