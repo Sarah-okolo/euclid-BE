@@ -1,160 +1,146 @@
+// src/routes/chat.js
 import express from "express";
+import jwt from "jsonwebtoken";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
 import { getDB } from "../config/db.js";
 import { querySimilar } from "../services/vectorStore.js";
 import { getCache, setCache } from "../utils/cache.js";
 import { GoogleGenAI } from "@google/genai";
-import { authz } from "../middleware/authz.js";
-import { OpenFgaClient } from "@openfga/sdk";
 
 dotenv.config();
 
 const router = express.Router();
-const gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-/**
- * Lazily initialize the FGA client
- */
-let fga = null;
-function getFgaClient() {
-  const {
-    FGA_API_URL,
-    FGA_STORE_ID,
-    FGA_CLIENT_ID,
-    FGA_CLIENT_SECRET,
-    FGA_API_AUDIENCE,
-  } = process.env;
-
-  if (!FGA_API_URL || !FGA_STORE_ID || !FGA_CLIENT_ID || !FGA_CLIENT_SECRET || !FGA_API_AUDIENCE) {
-    console.warn("⚠️ Skipping FGA init: missing env vars");
-    return null;
-  }
-
-  if (!fga) {
-    console.log("✅ Initializing OpenFGA client...");
-    fga = new OpenFgaClient({
-      apiUrl: FGA_API_URL,
-      storeId: FGA_STORE_ID,
-      credentials: {
-        method: "client_credentials",
-        clientId: FGA_CLIENT_ID,
-        clientSecret: FGA_CLIENT_SECRET,
-        apiAudience: FGA_API_AUDIENCE,
-      },
-    });
-  }
-
-  return fga;
-}
-
-/**
- * Helper: Check FGA access for each document
- */
-async function checkFgaAccess(userSub, botId, filename) {
-  try {
-    const fgaClient = getFgaClient();
-    if (!fgaClient) {
-      console.warn("⚠️ FGA client unavailable — skipping document-level access control");
-      return true; // Allow all when FGA is not configured
-    }
-
-    const resp = await fgaClient.check({
-      tuple_key: {
-        user: `user:${userSub}`,
-        relation: "reader",
-        object: `document:${botId}/${filename}`,
-      },
-    });
-
-    return Boolean(resp?.allowed);
-  } catch (err) {
-    console.error("FGA check failed:", err);
-    return false;
-  }
-}
+// ✅ Initialize Gemini client
+const gemini = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+});
 
 /**
  * POST /api/chat
- * Secure chat handler integrating Auth0 (user) and FGA (document-level control)
+ * Handles user chat messages with RAG + optional API call execution.
  */
-router.post("/", authz(), async (req, res) => {
+router.post("/", async (req, res) => {
+  console.log("🔑 Gemini API Key:", process.env.GEMINI_API_KEY);
   const db = getDB();
-  const { message: userMessage } = req.body;
-  const { bot, token, user } = req;
+  const { botId, message: userMessage, sessionId: userToken } = req.body;
 
   try {
+    console.log("Chat request for bot:", req.body);
+
+    if (!botId) {
+      return res.status(400).json({ status: "failed", error: "Missing required field: botId" });
+    }
     if (!userMessage) {
-      return res.status(400).json({ status: "failed", error: "Missing required field: message" });
+      return res.status(400).json({ status: "failed", error: "Missing required field: userMessage" });
     }
 
-    console.log(`💬🎊 Chat: Received message: "${userMessage}" for bot ${bot?.botId} from user ${user?.sub}`);
-
-    // Cache lookup
-    const cacheKey = `${bot?.botId}:${userMessage.trim().toLowerCase()}`;
+    // --- Step 1: Cache lookup ---
+    const cacheKey = `${botId}:${userMessage.trim().toLowerCase()}`;
     const cachedResponse = getCache(cacheKey);
     if (cachedResponse) {
-      return res.json({ botId: bot.botId, response: cachedResponse, cached: true });
+      return res.json({ botId, response: cachedResponse, cached: true });
     }
 
-    // RAG vector query
-    const topChunks = await querySimilar(bot?.botId, userMessage, 5);
+    // --- Step 2: Fetch bot configuration ---
+    const botsCollection = db.collection("bots");
+    const bot = await botsCollection.findOne({ botId });
+    if (!bot) {
+      return res.status(404).json({ status: "failed", error: "Bot not found" });
+    }
 
-    // // FGA checks on chunks
-    // const allowedChunks = [];
-    // for (const c of topChunks) {
-    //   const allowed = await checkFgaAccess(user?.sub, bot?.botId, c.metadata?.filename || "unknown");
-    //   if (allowed) allowedChunks.push(c);
-    // }
+    // --- Step 3: Decode token (optional, for logs or personalization) ---
+    let userPayload = null;
+    if (userToken) {
+      try {
+        userPayload = jwt.decode(userToken, { complete: true });
+      } catch {
+        // Not critical, skip if invalid — verification happens in /api/proxy
+      }
+    }
 
-    // if (!allowedChunks.length) {
-    //   return res.status(403).json({
-    //     status: "failed",
-    //     error: "You are not authorized to access any relevant documents.",
-    //   });
-    // }
+    // --- Step 4: Retrieve top relevant context chunks ---
+    const topChunks = await querySimilar(botId, userMessage, 5);
+    if (!topChunks.length) {
+      return res.status(404).json({
+        status: "failed",
+        error: "No knowledge base found for this bot",
+      });
+    }
 
-    // const contextText = allowedChunks.map((c, i) => `#${i + 1} ${c.text}`).join("\n\n");
+    const contextText = topChunks.map((c, i) => `#${i + 1} ${c.text}`).join("\n\n");
 
-    // Endpoint summary
-    const endpoints = JSON.parse(bot.endpointRoles || "[]");
-    const endpointDescriptions =
-      endpoints.length > 0
-        ? endpoints.map((r) => `- ${r.endpoint} (${r.method || "ANY"}) — roles: ${r.roles.join(", ")}`).join("\n")
-        : "None provided.";
+    // --- Step 5: Add available API endpoints as context ---
+    let endpointDescriptions = "None provided.";
+    try {
+      const endpoints = JSON.parse(bot.endpointRoles || "[]");
+      if (endpoints.length > 0) {
+        endpointDescriptions = endpoints
+          .map((r) => `- ${r.endpoint} (${r.method || "ANY"}) — allowed roles: ${r.roles.join(", ")}`)
+          .join("\n");
+      }
+    } catch {
+      // Ignore parsing error — fallback to none
+    }
 
-    // Instruction setup
+    // --- Step 6: Build enhanced system instruction ---
     const systemInstruction = `
 You are ${bot.botName}, a ${bot.botPersona}.
 Follow these business rules strictly: ${bot.defaultPrompt}.
-Use the knowledge base and available API list to assist the user.
-Always respond with a valid JSON object.
+You have access to internal business APIs and company knowledge provided below.
+You can reason, decide, and call internal APIs securely through the system.
+
+Always return a single valid JSON object that matches the schema.
+Never include markdown or commentary outside the JSON.
 `;
 
+    // --- Step 7: Construct user prompt (RAG + endpoints awareness) ---
     const userPrompt = `
 User message: "${userMessage}"
 
 Company knowledge:
-${topChunks.map((c, i) => `#${i + 1} ${c.text}`).join("\n\n")}
+${contextText}
 
 Available internal API endpoints:
 ${endpointDescriptions}
+
+Instructions:
+1. Determine if one of the above APIs matches the user's intent.
+2. If yes, return: "action": "call_api" with "endpoint", "method", and "payload".
+3. If no, return: "action": "none".
+4. Always include a natural "answer" for the user (concise, direct, no repetition).
 `;
 
-    // LLM response schema
+    // --- Step 8: Define strict JSON schema ---
     const responseSchema = {
       type: "object",
       properties: {
         action: { type: "string", enum: ["none", "call_api"] },
         endpoint: { type: "string", nullable: true },
-        method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE"], nullable: true },
-        payload: { type: "object", nullable: true, additionalProperties: true },
+        method: {
+          type: "string",
+          enum: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+          nullable: true,
+        },
+        payload: {
+          type: "object",
+          nullable: true,
+          properties: {
+            example: { type: "string", nullable: true }, // 👈 required dummy key
+          },
+          additionalProperties: true,
+        },
         answer: { type: "string" },
       },
       required: ["action", "answer"],
+      additionalProperties: false,
     };
 
-    // Generate LLM response
+
+    // --- Step 9: Send to Gemini ---
+    console.log("⚡ Sending enhanced prompt to Gemini...");
+
     const response = await gemini.models.generateContent({
       model: "gemini-2.5-flash",
       systemInstruction,
@@ -167,17 +153,30 @@ ${endpointDescriptions}
     });
 
     const rawText = response.response?.text || response.text || "";
+    console.log("🧠 Gemini raw response:", rawText);
+
+    // --- Step 10: Parse structured JSON ---
     let aiJson;
     try {
       aiJson = JSON.parse(rawText);
-    } catch {
-      return res.status(502).json({ status: "failed", error: "Failed to parse LLM response" });
+    } catch (e) {
+      console.error("❌ Failed to parse Gemini JSON:", rawText);
+      return res.status(502).json({
+        status: "failed",
+        error: "Failed to parse LLM response",
+      });
     }
 
+    // --- Step 11: Handle agentic API call ---
     let finalAnswer = aiJson.answer || "";
-
-    // Handle API calls suggested by AI
     if (aiJson.action === "call_api") {
+      if (!userToken) {
+        return res.status(401).json({
+          status: "failed",
+          error: "Authentication required for this action",
+        });
+      }
+
       const endpoint = aiJson.endpoint || "";
       const method = aiJson.method || "GET";
       const payload = aiJson.payload || {};
@@ -189,15 +188,15 @@ ${endpointDescriptions}
         });
       }
 
+      console.log(`🤖 Executing agentic action → ${method} ${endpoint}`);
+
       try {
         const proxyResponse = await fetch(`${process.env.BACKEND_URL}/api/proxy`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            botId: bot.botId,
+            botId,
+            userToken,
             endpoint,
             method,
             payload,
@@ -206,23 +205,26 @@ ${endpointDescriptions}
 
         if (!proxyResponse.ok) {
           const errBody = await proxyResponse.text();
-          finalAnswer += `\n\n⚠️ API error (${proxyResponse.status}): ${errBody}`;
+          finalAnswer += `\n\n⚠️ The system attempted to call ${endpoint} but received an error (${proxyResponse.status}): ${errBody}`;
         } else {
           const proxyResult = await proxyResponse.json();
-          finalAnswer += `\n\n✅ Action executed result: ${JSON.stringify(proxyResult.data)}`;
+          finalAnswer += `\n\n✅ Action executed result: ${JSON.stringify(proxyResult)}`;
         }
       } catch (error) {
         console.error("Proxy call failed:", error);
-        finalAnswer += `\n\n⚠️ The system attempted to call ${endpoint}, but the request failed (${error.message})`;
+        finalAnswer += `\n\n⚠️ The system attempted to call ${endpoint}, but the request failed to reach the backend. (${error.message})`;
       }
     }
 
-    // Cache and return
+    // --- Step 12: Cache and return ---
     setCache(cacheKey, finalAnswer);
-    return res.status(200).json({ botId: bot.botId, response: finalAnswer, cached: false });
+    return res.status(200).json({ botId, response: finalAnswer, cached: false });
   } catch (err) {
-    console.error("❌ Chat endpoint error:", err);
-    return res.status(500).json({ status: "failed", error: "Internal server error" });
+    console.error("❌ Error in chat endpoint:", err);
+    return res.status(500).json({
+      status: "failed",
+      error: "Internal server error",
+    });
   }
 });
 
