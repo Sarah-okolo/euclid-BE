@@ -88,12 +88,12 @@ router.post("/", authz(), async (req, res) => {
       return res.status(400).json({ status: "failed", error: "Missing required field: message" });
     }
 
-    // Cache lookup
-    const cacheKey = `${bot.botId}:${userMessage.trim().toLowerCase()}`;
-    const cachedResponse = getCache(cacheKey);
-    if (cachedResponse) {
-      return res.json({ botId: bot.botId, response: cachedResponse, cached: true });
-    }
+    // // Cache lookup
+    // const cacheKey = `${bot.botId}:${userMessage.trim().toLowerCase()}`;
+    // const cachedResponse = getCache(cacheKey);
+    // if (cachedResponse) {
+    //   return res.json({ botId: bot.botId, response: cachedResponse, cached: true });
+    // }
 
     // RAG vector query
     const topChunks = await querySimilar(bot.botId, userMessage, 5);
