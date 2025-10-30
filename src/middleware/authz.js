@@ -4,16 +4,14 @@ import { getTokenFromRequest, verifyAccessToken } from "../config/auth0.js";
 
 /**
  * Loads the bot by :botId or body.botId and verifies the user's access token
- * against that bot's Auth0 domain/audience. Attaches req.bot, req.user, req.token.
+ * against that bot's Auth0 domain/audience.
+ * Attaches req.bot, req.user, req.token for downstream handlers.
  */
 export function authz() {
   return async (req, res, next) => {
     try {
       const db = getDB();
-
-      const paramBotId = req.params?.botId;
-      const bodyBotId = req.body?.botId;
-      const botId = paramBotId || bodyBotId;
+      const botId = req.params?.botId || req.body?.botId;
       if (!botId) return res.status(400).json({ error: "Missing botId" });
 
       const bot = await db.collection("bots").findOne({ botId });
@@ -25,11 +23,13 @@ export function authz() {
       const issuer = `https://${bot.authDomain}/`;
       const audience = bot.authAudience;
 
+      // Verify access token via JOSE
       const payload = await verifyAccessToken(token, { issuer, audience });
 
       req.bot = bot;
       req.user = payload;
       req.token = token;
+
       next();
     } catch (err) {
       console.error("❌ authz middleware error:", err);

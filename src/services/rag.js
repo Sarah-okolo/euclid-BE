@@ -28,13 +28,17 @@ export async function processDocument(botId, text, filename = "document.pdf") {
 
     console.log(`📄 RAG: Processing ${chunks.length} chunks for bot "${botId}" (${filename})`);
 
+    const now = Date.now();
+    const docKey = `document:${botId}/${filename}`;
+
     // Prepare items for Pinecone
     const items = chunks.map((chunk, i) => ({
-      id: `${botId}_${Date.now()}_${i}`, // ✅ unique and collision-safe ID
+      id: `${botId}_${now}_${i}`,
       text: chunk,
       metadata: {
         botId,
         filename,
+        docKey,          // ← used by FGA checks
         chunkIndex: i,
         length: chunk.length,
       },

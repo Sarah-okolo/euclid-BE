@@ -14,15 +14,18 @@ export function getTokenFromRequest(req) {
 
 /**
  * Verify an Auth0 access token using remote JWKS.
- * @param {string} token
- * @param {{ issuer: string; audience: string }} opts
- * @returns {Promise<object>} JWT payload
+ * Uses JOSE to validate tokens issued by the bot’s Auth0 tenant.
  */
 export async function verifyAccessToken(token, { issuer, audience }) {
   if (!token) throw new Error("Missing access token");
-  // Ensure issuer ends with a trailing slash
+
   const iss = issuer.endsWith("/") ? issuer : `${issuer}/`;
   const JWKS = createRemoteJWKSet(new URL(`${iss}.well-known/jwks.json`));
-  const { payload } = await jwtVerify(token, JWKS, { issuer: iss, audience });
+
+  const { payload } = await jwtVerify(token, JWKS, {
+    issuer: iss,
+    audience,
+  });
+
   return payload;
 }
