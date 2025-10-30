@@ -117,9 +117,9 @@ router.post("/", authz(), async (req, res) => {
     // const contextText = allowedChunks.map((c, i) => `#${i + 1} ${c.text}`).join("\n\n");
 
     // Endpoint summary
-    const endpoints = JSON.parse(bot.endpointRoles || "[]");
+    const endpoints = JSON.parse(bot?.endpointRoles || "[]");
     const endpointDescriptions =
-      endpoints.length > 0
+      endpoints?.length > 0
         ? endpoints.map((r) => `- ${r.endpoint} (${r.method || "ANY"}) — roles: ${r.roles.join(", ")}`).join("\n")
         : "None provided.";
 
