@@ -88,7 +88,7 @@ router.post("/", authz(), async (req, res) => {
       return res.status(400).json({ status: "failed", error: "Missing required field: message" });
     }
 
-    console.log(`💬🎊 Chat: Received message: "${userMessage}" for bot ${bot?.botId} from user ${user.sub}`);
+    console.log(`💬🎊 Chat: Received message: "${userMessage}" for bot ${bot?.botId} from user ${user?.sub}`);
 
     // Cache lookup
     const cacheKey = `${bot?.botId}:${userMessage.trim().toLowerCase()}`;
@@ -103,7 +103,7 @@ router.post("/", authz(), async (req, res) => {
     // FGA checks on chunks
     const allowedChunks = [];
     for (const c of topChunks) {
-      const allowed = await checkFgaAccess(user.sub, bot?.botId, c.metadata?.filename || "unknown");
+      const allowed = await checkFgaAccess(user?.sub, bot?.botId, c.metadata?.filename || "unknown");
       if (allowed) allowedChunks.push(c);
     }
 
