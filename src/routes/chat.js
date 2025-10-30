@@ -88,20 +88,22 @@ router.post("/", authz(), async (req, res) => {
       return res.status(400).json({ status: "failed", error: "Missing required field: message" });
     }
 
-    // // Cache lookup
-    // const cacheKey = `${bot.botId}:${userMessage.trim().toLowerCase()}`;
-    // const cachedResponse = getCache(cacheKey);
-    // if (cachedResponse) {
-    //   return res.json({ botId: bot.botId, response: cachedResponse, cached: true });
-    // }
+    console.log(`💬🎊 Chat: Received message: "${userMessage}" for bot ${bot?.botId} from user ${user.sub}`);
+
+    // Cache lookup
+    const cacheKey = `${bot?.botId}:${userMessage.trim().toLowerCase()}`;
+    const cachedResponse = getCache(cacheKey);
+    if (cachedResponse) {
+      return res.json({ botId: bot.botId, response: cachedResponse, cached: true });
+    }
 
     // RAG vector query
-    const topChunks = await querySimilar(bot.botId, userMessage, 5);
+    const topChunks = await querySimilar(bot?.botId, userMessage, 5);
 
     // FGA checks on chunks
     const allowedChunks = [];
     for (const c of topChunks) {
-      const allowed = await checkFgaAccess(user.sub, bot.botId, c.metadata?.filename || "unknown");
+      const allowed = await checkFgaAccess(user.sub, bot?.botId, c.metadata?.filename || "unknown");
       if (allowed) allowedChunks.push(c);
     }
 
