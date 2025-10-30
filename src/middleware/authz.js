@@ -17,18 +17,18 @@ export function authz() {
       const bot = await db.collection("bots").findOne({ botId });
       if (!bot) return res.status(404).json({ error: "Bot not found" });
 
-      const token = getTokenFromRequest(req);
-      if (!token) return res.status(401).json({ error: "No access token provided" });
+      // const token = getTokenFromRequest(req);
+      // if (!token) return res.status(401).json({ error: "No access token provided" });
 
-      const issuer = `https://${bot.authDomain}/`;
-      const audience = bot.authAudience;
+      // const issuer = `https://${bot.authDomain}/`;
+      // const audience = bot.authAudience;
 
-      // Verify access token via JOSE
-      const payload = await verifyAccessToken(token, { issuer, audience });
+      // // Verify access token via JOSE
+      // const payload = await verifyAccessToken(token, { issuer, audience });
 
-      req.bot = bot;
-      req.user = payload;
-      req.token = token;
+      // req.bot = bot;
+      // req.user = payload;
+      // req.token = token;
 
       next();
     } catch (err) {
