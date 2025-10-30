@@ -100,21 +100,21 @@ router.post("/", authz(), async (req, res) => {
     // RAG vector query
     const topChunks = await querySimilar(bot?.botId, userMessage, 5);
 
-    // FGA checks on chunks
-    const allowedChunks = [];
-    for (const c of topChunks) {
-      const allowed = await checkFgaAccess(user?.sub, bot?.botId, c.metadata?.filename || "unknown");
-      if (allowed) allowedChunks.push(c);
-    }
+    // // FGA checks on chunks
+    // const allowedChunks = [];
+    // for (const c of topChunks) {
+    //   const allowed = await checkFgaAccess(user?.sub, bot?.botId, c.metadata?.filename || "unknown");
+    //   if (allowed) allowedChunks.push(c);
+    // }
 
-    if (!allowedChunks.length) {
-      return res.status(403).json({
-        status: "failed",
-        error: "You are not authorized to access any relevant documents.",
-      });
-    }
+    // if (!allowedChunks.length) {
+    //   return res.status(403).json({
+    //     status: "failed",
+    //     error: "You are not authorized to access any relevant documents.",
+    //   });
+    // }
 
-    const contextText = allowedChunks.map((c, i) => `#${i + 1} ${c.text}`).join("\n\n");
+    // const contextText = allowedChunks.map((c, i) => `#${i + 1} ${c.text}`).join("\n\n");
 
     // Endpoint summary
     const endpoints = JSON.parse(bot.endpointRoles || "[]");
@@ -135,7 +135,7 @@ Always respond with a valid JSON object.
 User message: "${userMessage}"
 
 Company knowledge:
-${contextText}
+${topChunks.map((c, i) => `#${i + 1} ${c.text}`).join("\n\n")}
 
 Available internal API endpoints:
 ${endpointDescriptions}
